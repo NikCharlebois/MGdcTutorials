@@ -186,7 +186,7 @@
             "description": "Allow all access"
           }
         ],
-        "scmIpSecurityRestrictionsUseMain": false,
+        "scmIpSecurityRestrictionsUseMain": false
       },
       "resources": [
         {
