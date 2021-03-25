@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.31112.23
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EmailMetrics", "EmailMetrics.csproj", "{2CA8631F-1EE5-4AE3-A402-2926EC67C19E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{2CA8631F-1EE5-4AE3-A402-2926EC67C19E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2CA8631F-1EE5-4AE3-A402-2926EC67C19E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2CA8631F-1EE5-4AE3-A402-2926EC67C19E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2CA8631F-1EE5-4AE3-A402-2926EC67C19E}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {DFF69E51-C9E5-4A26-92E8-66764F440190}
+	EndGlobalSection
+EndGlobal
