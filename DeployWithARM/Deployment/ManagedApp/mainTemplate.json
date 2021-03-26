@@ -1,0 +1,481 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "AzureADAppId": {
+      "type": "string",
+      "metadata": {
+        "description": "The id of the service principal that has access to the destination Data Lake store."
+      }
+    },
+    "AzureADAppSecret": {
+      "type": "string",
+      "metadata": {
+        "description": "The key of the service principal that has access to the destination Data Lake store."
+      }
+    },
+    "webSiteName": {
+      "type": "string"
+    }
+  },
+  "variables": {
+    "dataFactoryName": "[concat('M365-', uniqueString(resourceGroup().id))]",
+    "destinationAdlsAccountName": "[concat('myadls', uniqueString(resourceGroup().id))]",
+    "sourceLinkedServiceName": "SourceO365LinkedService",
+    "destinationLinkedServiceName": "DestinationADLSLinkedService",
+    "inputDatasetName": "O365Dataset",
+    "outputDatasetName": "ADLSOutputDataset",
+    "pipelineName": "M365 Simple Pipeline",
+    "triggerName": "Daily Trigger",
+    "outputDataLakeStore": {
+      "filePath": "mgdccontainer"
+    },
+    "servicePrincipalObjectId": "1b6d4f72-70ba-4911-8e77-682155be4662",
+    "webSiteNameVar": "[parameters('webSiteName')]",
+    "packageURL": "https://emailmetricsassets.blob.core.windows.net/appcontainer/EmailMetrics.zip"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2020-08-01-preview",
+      "name": "[variables('destinationAdlsAccountName')]",
+      "location": "East US 2",
+      "sku": {
+        "name": "Standard_RAGRS",
+        "tier": "Standard"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "minimumTlsVersion": "TLS1_2",
+        "allowBlobPublicAccess": true,
+        "allowSharedKeyAccess": true,
+        "networkAcls": {
+          "bypass": "AzureServices",
+          "virtualNetworkRules": [],
+          "ipRules": [],
+          "defaultAction": "Allow"
+        },
+        "supportsHttpsTrafficOnly": true,
+        "encryption": {
+          "services": {
+            "file": {
+              "keyType": "Account",
+              "enabled": true
+            },
+            "blob": {
+              "keyType": "Account",
+              "enabled": true
+            }
+          },
+          "keySource": "Microsoft.Storage"
+        },
+        "accessTier": "Hot"
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices",
+      "apiVersion": "2020-08-01-preview",
+      "name": "[concat(variables('destinationAdlsAccountName'), '/default')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/', variables('destinationAdlsAccountName'))]"
+      ],
+      "sku": {
+        "name": "Standard_RAGRS",
+        "tier": "Standard"
+      },
+      "properties": {
+        "cors": {
+          "corsRules": []
+        },
+        "deleteRetentionPolicy": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+      "apiVersion": "2020-08-01-preview",
+      "name": "[concat(variables('destinationAdlsAccountName'), '/default/mgdccontainer')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices', variables('destinationAdlsAccountName'), 'default')]",
+        "[resourceId('Microsoft.Storage/storageAccounts/', variables('destinationAdlsAccountName'))]"
+      ],
+      "properties": {
+        "defaultEncryptionScope": "$account-encryption-key",
+        "denyEncryptionScopeOverride": false,
+        "publicAccess": "Container"
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/providers/roleAssignments",
+      "apiVersion": "2017-05-01",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', variables('destinationAdlsAccountName'), 'default', 'mgdccontainer')]"
+      ],
+      "name": "[concat(variables('destinationAdlsAccountName'),'/Microsoft.Authorization/',guid(subscription().subscriptionId))]",
+      "properties": {
+        "roleDefinitionId": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Authorization/roleDefinitions/', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
+        "principalId": "[variables('servicePrincipalObjectId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers/providers/roleAssignments",
+      "apiVersion": "2018-01-01-preview",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', variables('destinationAdlsAccountName'), 'default', 'mgdccontainer')]"
+      ],
+      "name": "[concat(variables('destinationAdlsAccountName'), '/default/mgdccontainer/Microsoft.Authorization/aff0e9ba-b9c8-47a0-8dfa-0faa2c411d7c')]",
+      "properties": {
+        "roleDefinitionId": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Authorization/roleDefinitions/', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')]",
+        "principalId": "[variables('servicePrincipalObjectId')]"
+      }
+    },
+
+    {
+      "apiVersion": "2015-08-01",
+      "name": "Free",
+      "type": "Microsoft.Web/serverfarms",
+      "location": "[resourceGroup().location]",
+      "tags": {
+        "displayName": "HostingPlan"
+      },
+      "sku": {
+        "name": "F1",
+        "capacity": "[int(1)]"
+      },
+      "properties": {
+        "name": "Free"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', variables('destinationAdlsAccountName'), 'default', 'mgdccontainer')]"
+      ]
+    },
+    {
+      "apiVersion": "2015-08-01",
+      "name": "[variables('webSiteNameVar')]",
+      "type": "Microsoft.Web/sites",
+      "comments": "Creates the web app that uses data stored in the newly created target ADLS.",
+      "location": "[resourceGroup().location]",
+      "tags": {
+        "[concat('hidden-related:', resourceGroup().id, '/providers/Microsoft.Web/serverfarms/', 'Free')]": "Resource",
+        "displayName": "Website"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/serverfarms/', 'Free')]",
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', variables('destinationAdlsAccountName'), 'default', 'mgdccontainer')]"
+      ],
+      "properties": {
+        "name": "[parameters('webSiteName')]",
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', 'Free')]",
+        "scmType": "GitHubAction",
+        "scmIpSecurityRestrictions": [
+          {
+            "ipAddress": "Any",
+            "action": "Allow",
+            "priority": 1,
+            "name": "Allow all",
+            "description": "Allow all access"
+          }
+        ],
+        "scmIpSecurityRestrictionsUseMain": false
+      },
+      "resources": [
+        {
+          "name": "MSDeploy",
+          "type": "extensions",
+          "comments": "Creates the web app deployment.",
+          "location": "[resourceGroup().location]",
+          "apiVersion": "2015-08-01",
+          "dependsOn": [
+            "[resourceId('Microsoft.Web/sites', parameters('webSiteName'))]",
+            "[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', variables('destinationAdlsAccountName'), 'default', 'mgdccontainer')]"
+          ],
+          "tags": {
+            "displayName": "EmailMetricsWebAppDeployment"
+          },
+          "properties": {
+            "packageUri": "[variables('packageURL')]",
+            "dbType": "None",
+            "setParameters": {
+              "IIS Web Application Name": "[parameters('webSiteName')]"
+            }
+          }
+        },
+        {
+          "name": "appsettings",
+          "type": "config",
+          "comments": "Creates app setting overrides for the web app.",
+          "apiVersion": "2015-08-01",
+          "dependsOn": [
+            "[resourceId('Microsoft.Web/sites', parameters('webSiteName'))]",
+            "[concat('Microsoft.Web/Sites/', parameters('webSiteName'), '/Extensions/MSDeploy')]",
+            "[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', variables('destinationAdlsAccountName'), 'default', 'mgdccontainer')]"
+          ],
+          "tags": {
+            "displayName": "AppSettingsConfiguration"
+          },
+          "properties": {
+            "arm:AzureStorageConnectionString": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('destinationAdlsAccountName'), ';AccountKey=', listKeys(resourceId(resourceGroup().name,'Microsoft.Storage/storageAccounts', variables('destinationAdlsAccountName')), '2019-04-01').keys[0].value,';EndpointSuffix=core.windows.net')]"
+          }
+        }
+      ]
+    },
+    {
+      "name": "[variables('dataFactoryName')]",
+      "apiVersion": "2017-09-01-preview",
+      "type": "Microsoft.DataFactory/factories",
+      "comments": "Creates the ADF pipeline that copies data from O365 to the newly created destination ADLS.",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/', variables('destinationAdlsAccountName'))]"
+      ],
+      "location": "East US 2",
+      "resources": [
+        {
+          "name": "[concat(variables('dataFactoryName'), '/AzureSelfHosted')]",
+          "type": "Microsoft.DataFactory/factories/integrationRuntimes",
+          "apiVersion": "2017-09-01-preview",
+          "properties": {
+            "type": "Managed",
+            "typeProperties": {
+              "computeProperties": {
+                "location": "East US 2",
+                "dataFlowProperties": {
+                  "computeType": "General",
+                  "coreCount": 8,
+                  "timeToLive": 10
+                }
+              }
+            }
+          },
+          "dependsOn": [
+            "[variables('dataFactoryName')]"
+          ]
+        },
+        {
+          "type": "linkedservices",
+          "name": "[variables('sourceLinkedServiceName')]",
+          "comments": "Creates the link to O365 which is used as the source of the data extraction. Using service principal supplied by the source ADLS owner.",
+          "dependsOn": [
+            "[variables('dataFactoryName')]",
+            "AzureSelfHosted"
+          ],
+          "location": "East US 2",
+          "apiVersion": "2017-09-01-preview",
+          "properties": {
+            "type": "Office365",
+            "connectVia": {
+              "referenceName": "AzureSelfHosted",
+              "type": "IntegrationRuntimeReference"
+            },
+            "description": "Source O365 linked service",
+            "typeProperties": {
+              "office365tenantId": "[subscription().tenantId]",
+              "PrivacyPolicyUri": "http://www.wkw.com/privacy",
+              "TermsOfUseUri": "http://www.wkw.com/tos",
+              "servicePrincipalId": "[parameters('AzureADAppId')]",
+              "servicePrincipalKey": {
+                "type": "SecureString",
+                "value": "[parameters('AzureADAppSecret')]"
+              },
+              "servicePrincipalTenantId": "[subscription().tenantId]",
+              "allowedGroups": ""
+            }
+          }
+        },
+        {
+          "type": "linkedservices",
+          "name": "[variables('destinationLinkedServiceName')]",
+          "comments": "Creates the link to the newly created destination ADLS, using service principal supplied by the customer deploying this template.",
+          "dependsOn": [
+            "[variables('dataFactoryName')]",
+            "[resourceId('Microsoft.Storage/storageAccounts/blobServices', variables('destinationAdlsAccountName'), 'default')]",
+            "[resourceId('Microsoft.Storage/storageAccounts/', variables('destinationAdlsAccountName'))]",
+            "[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', variables('destinationAdlsAccountName'), 'default', 'mgdccontainer')]",
+            "[resourceId('Microsoft.DataFactory/factories/integrationRuntimes', variables('dataFactoryName'), 'AzureSelfHosted')]"
+          ],
+          "apiVersion": "2017-09-01-preview",
+          "properties": {
+            "type": "AzureBlobStorage",
+            "description": "Destination Azure Data Lake Store linked service",
+            "typeProperties": {
+              "serviceEndpoint": "[concat('https://', variables('destinationAdlsAccountName'), '.blob.core.windows.net/')]",
+              "servicePrincipalId": "[parameters('AzureADAppId')]",
+              "servicePrincipalKey": {
+                "type": "SecureString",
+                "value": "[parameters('AzureADAppSecret')]"
+              },
+              "tenant": "[subscription().tenantId]",
+              "resourceGroupName": "[resourceGroup().name]",
+              "subscriptionId": "[subscription().subscriptionId]"
+            }
+          }
+        },
+        {
+          "type": "datasets",
+          "name": "[variables('inputDatasetName')]",
+          "dependsOn": [
+            "[variables('dataFactoryName')]",
+            "[variables('sourceLinkedServiceName')]"
+          ],
+          "apiVersion": "2017-09-01-preview",
+          "properties": {
+            "published": false,
+            "type": "Office365Table",
+            "linkedServiceName": {
+              "referenceName": "[variables('sourceLinkedServiceName')]",
+              "type": "LinkedServiceReference"
+            },
+            "structure": [
+              {
+                "Name": "importance",
+                "Type": "string"
+              },
+              {
+                "Name": "from",
+                "Type": "string"
+              },
+              {
+                "Name": "ccRecipients",
+                "Type": "string"
+              },
+              {
+                "Name": "id",
+                "Type": "string"
+              },
+              {
+                "Name": "sentDateTime",
+                "Type": "datetime"
+              },
+              {
+                "Name": "sender",
+                "Type": "string"
+              },
+              {
+                "Name": "toRecipients",
+                "Type": "string"
+              },
+              {
+                "Name": "replyTo",
+                "Type": "string"
+              },
+              {
+                "Name": "conversationId",
+                "Type": "string"
+              }
+            ],
+            "typeProperties": {
+              "tableName": "BasicDataSet_v0.Message_v1",
+              "dateFilterColumn": "createdDateTime",
+              "startTime": "2016-10-28T15:50:27Z",
+              "endTime": "2029-04-28T15:50:27Z"
+            },
+            "external": true
+          }
+        },
+        {
+          "type": "datasets",
+          "name": "[variables('outputDatasetName')]",
+          "dependsOn": [
+            "[variables('dataFactoryName')]",
+            "[variables('destinationLinkedServiceName')]"
+          ],
+          "apiVersion": "2017-09-01-preview",
+          "properties": {
+            "published": false,
+            "type": "AzureBlobFSFile",
+            "linkedServiceName": {
+              "referenceName": "[variables('destinationLinkedServiceName')]",
+              "type": "LinkedServiceReference"
+            },
+            "typeProperties": {
+              "folderPath": "[variables('outputDataLakeStore').filePath]"
+            }
+          }
+        },
+        {
+          "type": "pipelines",
+          "name": "[variables('pipelineName')]",
+          "dependsOn": [
+            "[variables('dataFactoryName')]",
+            "[variables('sourceLinkedServiceName')]",
+            "[variables('destinationLinkedServiceName')]",
+            "[variables('inputDatasetName')]",
+            "[variables('outputDatasetName')]"
+          ],
+          "apiVersion": "2017-09-01-preview",
+          "properties": {
+            "activities": [
+              {
+                "name": "Copy Teams Chat Data",
+                "description": "Copy Teams chat data from O365 to Azure Data Lake Store",
+                "type": "Copy",
+                "inputs": [
+                  {
+                    "referenceName": "[variables('inputDatasetName')]",
+                    "type": "DatasetReference"
+                  }
+                ],
+                "outputs": [
+                  {
+                    "referenceName": "[variables('outputDatasetName')]",
+                    "type": "DatasetReference"
+                  }
+                ],
+                "typeProperties": {
+                  "source": {
+                    "type": "Office365Source"
+                  },
+                  "sink": {
+                    "type": "AzureDataLakeStoreSink"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "triggers",
+          "name": "[variables('triggerName')]",
+          "dependsOn": [
+            "[variables('dataFactoryName')]",
+            "[variables('sourceLinkedServiceName')]",
+            "[variables('destinationLinkedServiceName')]",
+            "[variables('inputDatasetName')]",
+            "[variables('outputDatasetName')]",
+            "[variables('pipelineName')]"
+          ],
+          "apiVersion": "2017-09-01-preview",
+          "properties": {
+            "type": "ScheduleTrigger",
+            "typeProperties": {
+              "recurrence": {
+                "frequency": "Day",
+                "interval": 1,
+                "startTime": "2016-07-09T19:22:09.1440844Z",
+                "timeZone": "UTC"
+              }
+            },
+            "pipelines": [
+              {
+                "pipelineReference": {
+                  "type": "PipelineReference",
+                  "referenceName": "[variables('pipelineName')]"
+                },
+                "parameters": {}
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "type": "Microsoft.DataFactory/factories/triggers/status",
+      "name": "[concat(variables('dataFactoryName'), '/', variables('triggerName'), '/start')]",
+      "apiVersion": "2017-09-01-preview",
+      "dependsOn": [
+        "[concat('Microsoft.DataFactory/factories/', variables('dataFactoryName'), '/triggers/', variables('triggerName'))]"
+      ],
+      "properties": {}
+    }
+  ]
+}

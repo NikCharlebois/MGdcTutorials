@@ -1,0 +1,63 @@
+{
+  "handler": "Microsoft.Compute.MultiVm",
+  "version": "0.1.2-preview",
+  "parameters": {
+    "basics": [ {} ],
+    "steps": [
+      {
+        "name": "webAppSettings",
+        "label": "Web App Settings",
+        "subLabel": {
+          "postValidation": "Done",
+          "preValidation": "Configure the Web App settings"
+        },
+        "bladeTitle": "Web App Settings",
+        "elements": [
+          {
+            "name": "webSiteName",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Website name",
+            "toolTip": "The website name, used as the prefix in the url of the published web app.  E.g. <websitename>.azurewebsites.net",
+            "constraints": {
+              "required": true
+            }
+          }
+        ]
+      },
+      {
+        "name": "adfSettings",
+        "label": "Data Factory Settings",
+        "subLabel": {
+          "postValidation": "Done",
+          "preValidation": "Configure the Data Factory settings"
+        },
+        "bladeTitle": "Data Factory Settings",
+        "elements": [
+          {
+            "name": "AzureADAppId",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Azure AD App ID",
+            "toolTip": "The AppId of the Application.",
+            "constraints": {
+              "required": true
+            }
+          },
+          {
+            "name": "AzureADAppSecret",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Azure AD App Secret",
+            "toolTip": "The secret of the Application",
+            "constraints": {
+              "required": true
+            }
+          }
+        ]
+      }
+    ],
+    "outputs": {
+      "webSiteName": "[steps('webAppSettings').webSiteName]",
+      "AzureADAppId": "[steps('adfSettings').AzureADAppId]",
+      "AzureADAppSecret": "[steps('adfSettings').AzureADAppSecret]"
+    }
+  }
+}
